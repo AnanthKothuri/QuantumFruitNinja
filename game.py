@@ -8,20 +8,30 @@ from qiskit.visualization import plot_histogram
 
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+import matplotlib.backends.backend_agg as agg
 matplotlib.use('module://pygame_matplotlib.backend_pygame')
 
 plt.margins(x=0)
 plt.gca().spines[['right', 'top']].set_visible(False)
 
+def choose_qubits():
+    qb1 = random.randint(0, NUM_QUBITS - 1)
+    qb2 = qb1
+    while (qb2 == qb1):
+        qb2 = random.randint(0, NUM_QUBITS - 1)
+
+    return [qb1, qb2]
+
 player_lives = 3
-score = 0
 fruits = ['cnot', 'h', 'x', 'u', 'measure']
 WIDTH = 1200
 HEIGHT = 800
 FPS = 12
 
 NUM_QUBITS = 4
-q = QuantumRegister(NUM_QUBITS)
+qubits_to_apply = choose_qubits()
+q = QuantumRegister(NUM_QUBITS + 1)
 c = ClassicalRegister(NUM_QUBITS)
 qc = QuantumCircuit(q, c)
 fig = qc.draw('mpl', scale=0.5, vertical_compression="tight")
@@ -44,7 +54,7 @@ def apply_fruit(fruit_dict):
         qc.cx(fruit_dict["qubit_list"][0], fruit_dict["qubit_list"][1])
 
     elif fruit_dict["gate_type"] == "measure":
-        qc.measure(qc.qubits, qc.clbits)
+        qc.measure(qc.qubits[:-1], qc.clbits)
     
     
 def measure_qubits():
@@ -60,6 +70,26 @@ def measure_qubits():
     res = random.choice(sample)
     return int(res, 2)
 
+def random_teleport():
+    qubit_to_teleport = random.randint(0, NUM_QUBITS - 1)
+    qubit_dst = qubit_to_teleport
+    qc.reset(qubit_dst)
+    while (qubit_dst == qubit_to_teleport):
+        qubit_dst = random.randint(0, NUM_QUBITS - 1)
+    
+    qc.barrier()
+    qc.h(NUM_QUBITS)
+    qc.cx(NUM_QUBITS, qubit_dst)
+
+    qc.barrier()
+    qc.cx(qubit_to_teleport, NUM_QUBITS)
+    qc.h(qubit_to_teleport)
+
+    qc.barrier()
+    qc.cx(NUM_QUBITS, qubit_dst)
+    qc.cz(qubit_to_teleport, qubit_dst)
+    qc.reset(NUM_QUBITS)
+
 pygame.init()
 pygame.display.set_caption('Fruity Computy')
 gameDisplay = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -74,33 +104,24 @@ BLUE = (0,0,255)
 gameDisplay.fill((BLACK))
 background = pygame.image.load('images/backgound.jpg')
 font = pygame.font.Font(os.path.join(os.getcwd(), 'comic.ttf'), 32)
-score_text = font.render('Score : ' + str(score), True, (255, 255, 255))
+qb_text = font.render('Qubits : [' + str(qubits_to_apply[0]) + ", " + str(qubits_to_apply[1]) + "]", True, (255, 255, 255))
 lives_icon = pygame.image.load('images/white_lives.png')
 
 
 def generate_random_fruits(fruit):
     fruit_path = "images/" + fruit + ".png"
-
-    # getting qubits for gate
-    qubits = [random.randint(0, NUM_QUBITS -  1)]
-    if fruit == "cnot":
-        second_qubit = qubits[0]
-        while second_qubit == qubits[0]:
-            second_qubit = random.randint(0, NUM_QUBITS -  1)
-
-        qubits.append(second_qubit)
         
     data[fruit] = {
         'img': pygame.image.load(fruit_path),
-        'x' : random.randint(100,500),               
+        'x' : random.randint(100,WIDTH - 100),               
         'y' : 800,
         'speed_x': random.randint(-10,10),    
-        'speed_y': random.randint(-80, -60),    
+        'speed_y': random.randint(-65, -50),    
         'throw': False,                       
         't': 0,                               
         'hit': False,
         'gate_type': fruit,
-        'qubit_list': qubits
+        'qubit_list': qubits_to_apply
 
     }
     if random.random() >= 0.75:     
@@ -139,7 +160,6 @@ def show_gameover_screen(measured_score):
     gameDisplay.blit(background, (0,0))
     draw_text(gameDisplay, "FRUITY COMPUTY!", 64, WIDTH / 2, HEIGHT / 4)
     if not game_over :
-        # draw_text(gameDisplay,"Score : " + str(score), 40, WIDTH / 2, 250)
         draw_text(gameDisplay,"Measured Score : " + str(measured_score), 40, WIDTH / 2, 250)
 
 
@@ -158,7 +178,34 @@ def show_gameover_screen(measured_score):
 first_round = True
 game_over = True        
 game_running = True    
-while game_running :
+ticks = 0
+old_tick = 0
+teleport_time = random.randint(100, 200)
+
+increment_text_time = False
+text_time = 50
+
+while game_running:
+    if increment_text_time:
+        if text_time > 0:
+            draw_text(gameDisplay, "Teleportation", 64, WIDTH / 2, HEIGHT / 4)
+            text_time -= 1
+        else:
+            increment_text_time = False
+
+    # ticking logic
+    if ticks == teleport_time + old_tick:
+        random_teleport()
+        draw_text(gameDisplay, "Teleportation", 64, WIDTH / 2, HEIGHT / 4)
+        increment_text_time = True
+        text_time = 50
+        
+        pygame.display.flip()
+        teleport_time = random.randint(100, 200)
+        old_tick = ticks
+
+    ticks += 1
+    
     if game_over :
         if first_round :
             show_gameover_screen(measured_score=0)
@@ -166,7 +213,6 @@ while game_running :
         game_over = False
         player_lives = 3
         draw_lives(gameDisplay, 690, 5, player_lives, 'images/red_lives.png')
-        score = 0
 
     for event in pygame.event.get():
 
@@ -174,8 +220,8 @@ while game_running :
             game_running = False
 
     gameDisplay.blit(background, (0, 0))
-    gameDisplay.blit(score_text, (0, 0))
-    draw_lives(gameDisplay, 690, 5, player_lives, 'images/red_lives.png')
+    gameDisplay.blit(qb_text, (0, 0))
+    #draw_lives(gameDisplay, 690, 5, player_lives, 'images/red_lives.png')
 
     for key, value in data.items():
         if value['throw']:
@@ -200,10 +246,14 @@ while game_running :
                 apply_fruit(value)
 
                 if key == 'measure':
-                    score = measure_qubits
-                    half_fruit_path = "explosion.png"
+                    score = measure_qubits()
+                    half_fruit_path = "images/explosion.png"
                     show_gameover_screen(measured_score=score)
+                    q = QuantumRegister(NUM_QUBITS + 1)
+                    c = ClassicalRegister(NUM_QUBITS)
+                    qc = QuantumCircuit(q, c)
                     game_over = True
+                    
                     
                 else:
                     half_fruit_path = "images/" + "half_" + key + ".png"
@@ -211,17 +261,23 @@ while game_running :
                 value['img'] = pygame.image.load(half_fruit_path)
                 value['speed_x'] += 10
                 if key != 'bomb' :
-                    score += 1
-                score_text = font.render('Score : ' + str(score), True, (255, 255, 255))
+                    qubits_to_apply = choose_qubits()
+                qb_text = font.render('Qubits : [' + str(qubits_to_apply[0]) + ", " + str(qubits_to_apply[1]) + "]", True, (255, 255, 255))
                 value['hit'] = True
         else:
             generate_random_fruits(key)
 
-    fig = qc.draw('mpl', scale=0.5, vertical_compression="tight")
-    # fig.set_figheight(100)
-    # fig.set_figwidth(200)
-    fig.canvas.draw()
-    gameDisplay.blit(fig, (10, 10))
+    fig = qc.draw('mpl', scale=0.4, vertical_compression="tight")
+    fig.patch.set_alpha(0.1) 
+    canvas = agg.FigureCanvasAgg(fig)
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    raw_data = renderer.buffer_rgba()
+
+    size = canvas.get_width_height()
+    image = pygame.image.frombuffer (raw_data, size, "RGBA")
+
+    gameDisplay.blit(image, (10, 10))
     pygame.display.update()
     clock.tick(FPS)
 
